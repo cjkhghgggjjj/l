@@ -5,127 +5,63 @@ import sys
 # ===========================
 # تثبيت المكتبات تلقائياً
 # ===========================
-def install(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+def install(pkg):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 
-required_libs = [
-    "flask",
-    "insightface",
-    "onnxruntime", 
-    "opencv-python-headless",
-    "numpy"
-]
-
-for lib in required_libs:
+for lib in ["flask", "insightface", "onnxruntime", "opencv-python-headless", "numpy"]:
     try:
         __import__(lib.split('-')[0])
     except ImportError:
-        print(f"🔹 تثبيت {lib}...")
         install(lib)
 
 # ===========================
 # استدعاء المكتبات
 # ===========================
-from flask import Flask, render_template_string, request, send_file
+from flask import Flask, request, send_file, render_template_string
 import cv2
-import numpy as np
 from insightface.app import FaceAnalysis
 
-# ===========================
-# إعداد التطبيق
-# ===========================
 app = Flask(__name__)
+face_app = FaceAnalysis()
+face_app.prepare(ctx_id=0, det_size=(640, 640))
 
-# تحميل نموذج معرفة الجنس فقط لتقليل الحجم
-face_app = FaceAnalysis(
-    name='buffalo_l',  # تحديد النموذج
-    providers=['CPUExecutionProvider']
-)
-
-# تهيئة النموذج مع إعدادات مبسطة
-face_app.prepare(
-    ctx_id=0, 
-    det_size=(320, 320)  # حجم أصغر للكشف فقط
-)
-
-# ===========================
-# صفحة HTML
-# ===========================
-HTML_PAGE = """
+# صفحة HTML صغيرة جدًا
+HTML = """
 <!DOCTYPE html>
-<html lang="ar">
-<head>
-  <meta charset="UTF-8">
-  <title>تحليل الجنس - InsightFace</title>
-  <style>
-    body {font-family: Arial; text-align:center; background:#f5f5f5;}
-    h2 {color:#333;}
-    form {margin:30px auto; padding:20px; background:white; border-radius:15px; width:350px; box-shadow:0 0 10px #ccc;}
-    input[type=file]{margin:10px;}
-    img {margin-top:20px; width:250px; border-radius:10px;}
-    .info {background:#fff; display:inline-block; margin-top:20px; padding:15px; border-radius:10px; box-shadow:0 0 5px #aaa;}
-    .male {color: blue; font-weight: bold;}
-    .female {color: pink; font-weight: bold;}
-  </style>
-</head>
-<body>
-  <h2>تحليل الجنس باستخدام InsightFace</h2>
-  <form method="POST" enctype="multipart/form-data">
-    <input type="file" name="image" accept="image/*" required>
-    <br><br>
-    <button type="submit">تحليل الجنس</button>
-  </form>
-  {% if result %}
-    <div class="info">
-      <h3>👤 النتيجة:</h3>
-      <p class="{{ 'male' if result.gender == 1 else 'female' }}">
-        الجنس: {{ 'ذكر' if result.gender == 1 else 'أنثى' }}
-      </p>
-      <p>عدد الوجوه المكتشفة: {{ result.faces }}</p>
-      <img src="{{ image_url }}">
-    </div>
-  {% endif %}
+<html>
+<body style="text-align:center;font-family:sans-serif;">
+<h2>كشف جنس الوجه</h2>
+<form method="POST" enctype="multipart/form-data">
+<input type="file" name="image" required><br><br>
+<button type="submit">تحليل</button>
+</form>
+{% if gender is not none %}
+<h3>👤 الجنس: {{ 'ذكر' if gender == 1 else 'أنثى' }}</h3>
+<img src="/image">
+{% endif %}
 </body>
 </html>
 """
 
-# ===========================
-# مسارات التطبيق
-# ===========================
 @app.route("/", methods=["GET", "POST"])
 def index():
+    gender = None
     if request.method == "POST":
         file = request.files["image"]
         if file:
             path = "uploaded.jpg"
             file.save(path)
-
             img = cv2.imread(path)
             faces = face_app.get(img)
-
-            if len(faces) == 0:
-                return render_template_string(HTML_PAGE, result=None, image_url=None)
-
-            face = faces[0]
-            result = type("Result", (), {})()
-            
-            # الحصول على الجنس
-            result.gender = int(face.gender)
-            result.faces = len(faces)
-
-            return render_template_string(HTML_PAGE, result=result, image_url="/image")
-    
-    return render_template_string(HTML_PAGE, result=None, image_url=None)
+            if faces:
+                gender = int(faces[0].gender)
+    return render_template_string(HTML, gender=gender)
 
 @app.route("/image")
-def serve_image():
+def image():
     return send_file("uploaded.jpg", mimetype="image/jpeg")
 
-# ===========================
-# تشغيل التطبيق
-# ===========================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     print(f"🌐 افتح المتصفح على: http://0.0.0.0:{port}")
-    print(f"🔍 النموذج مضبوط لتحليل الجنس")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port)
