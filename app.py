@@ -1,6 +1,5 @@
-import os
-import subprocess
 import sys
+import subprocess
 
 # ===========================
 # تثبيت المكتبات تلقائياً
@@ -8,60 +7,60 @@ import sys
 def install(pkg):
     subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 
-for lib in ["flask", "insightface", "onnxruntime", "opencv-python-headless", "numpy"]:
+required_libs = [
+    "flask",
+    "insightface",
+    "onnxruntime",
+    "opencv-python-headless",
+    "numpy"
+]
+
+for lib in required_libs:
     try:
         __import__(lib.split('-')[0])
     except ImportError:
+        print(f"🔹 تثبيت {lib} تلقائيًا...")
         install(lib)
 
 # ===========================
-# استدعاء المكتبات
+# استدعاء المكتبات بعد التأكد من التثبيت
 # ===========================
-from flask import Flask, request, send_file, render_template_string
+from flask import Flask, request, jsonify
 import cv2
+import numpy as np
 from insightface.app import FaceAnalysis
 
+# ===========================
+# إعداد API
+# ===========================
 app = Flask(__name__)
-face_app = FaceAnalysis()
+
+# تحميل النموذج الخفيف مرة واحدة عند التشغيل
+face_app = FaceAnalysis(name="antelope")  # أصغر نموذج متاح
 face_app.prepare(ctx_id=0, det_size=(640, 640))
 
-# صفحة HTML صغيرة جدًا
-HTML = """
-<!DOCTYPE html>
-<html>
-<body style="text-align:center;font-family:sans-serif;">
-<h2>كشف جنس الوجه</h2>
-<form method="POST" enctype="multipart/form-data">
-<input type="file" name="image" required><br><br>
-<button type="submit">تحليل</button>
-</form>
-{% if gender is not none %}
-<h3>👤 الجنس: {{ 'ذكر' if gender == 1 else 'أنثى' }}</h3>
-<img src="/image">
-{% endif %}
-</body>
-</html>
-"""
+@app.route("/gender", methods=["POST"])
+def gender():
+    file = request.files.get("image")
+    if not file:
+        return jsonify({"error": "No image uploaded"}), 400
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    gender = None
-    if request.method == "POST":
-        file = request.files["image"]
-        if file:
-            path = "uploaded.jpg"
-            file.save(path)
-            img = cv2.imread(path)
-            faces = face_app.get(img)
-            if faces:
-                gender = int(faces[0].gender)
-    return render_template_string(HTML, gender=gender)
+    # قراءة الصورة مباشرة من الذاكرة
+    npimg = np.frombuffer(file.read(), np.uint8)
+    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
-@app.route("/image")
-def image():
-    return send_file("uploaded.jpg", mimetype="image/jpeg")
+    faces = face_app.get(img)
+    if not faces:
+        return jsonify({"error": "No face detected"}), 404
 
+    gender = int(faces[0].gender)  # 1=ذكر, 0=أنثى
+    return jsonify({"gender": "ذكر" if gender == 1 else "أنثى"})
+
+# ===========================
+# تشغيل الخادم
+# ===========================
 if __name__ == "__main__":
+    import os
     port = int(os.getenv("PORT", 5000))
-    print(f"🌐 افتح المتصفح على: http://0.0.0.0:{port}")
+    print(f"🌐 API جاهز على: http://0.0.0.0:{port}/gender")
     app.run(host="0.0.0.0", port=port)
