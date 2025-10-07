@@ -1,71 +1,114 @@
-import sys
-import subprocess
-import importlib
 import os
+import subprocess
+import sys
 
 # ===========================
 # تثبيت المكتبات تلقائياً
 # ===========================
-def install(pkg):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+def install(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
 required_libs = [
     "flask",
     "insightface",
     "onnxruntime",
-    "opencv-python-headless",
+    "opencv-python-headless",  # headless لتجنب libGL
     "numpy"
 ]
 
 for lib in required_libs:
     try:
-        importlib.import_module(lib.replace('-', '_'))
+        __import__(lib.split('-')[0])
     except ImportError:
-        print(f"🔹 تثبيت {lib} تلقائيًا...")
+        print(f"🔹 تثبيت {lib}...")
         install(lib)
 
 # ===========================
-# استدعاء المكتبات بعد التأكد من التثبيت
+# استدعاء المكتبات
 # ===========================
-from flask import Flask, request, jsonify
+from flask import Flask, render_template_string, request, send_file
 import cv2
-import numpy as np
 from insightface.app import FaceAnalysis
 
 # ===========================
-# إعداد API
+# إعداد التطبيق
 # ===========================
 app = Flask(__name__)
 
-# تحميل النموذج الخفيف مرة واحدة عند التشغيل (CPU)
-face_app = FaceAnalysis(name="antelope")
-face_app.prepare(ctx_id=-1, det_size=(640, 640))  # CPU
-
-@app.route("/gender", methods=["POST"])
-def gender():
-    file = request.files.get("image")
-    if not file:
-        return jsonify({"error": "No image uploaded"}), 400
-
-    npimg = np.frombuffer(file.read(), np.uint8)
-    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
-    if img is None:
-        return jsonify({"error": "Invalid image"}), 400
-
-    faces = face_app.get(img)
-    if not faces:
-        return jsonify({"error": "No face detected"}), 404
-
-    gender_val = int(faces[0].gender) if faces[0].gender is not None else -1
-    if gender_val == -1:
-        return jsonify({"error": "Could not determine gender"}), 500
-
-    return jsonify({"gender": "ذكر" if gender_val == 1 else "أنثى"})
+# تحميل نموذج صغير الحجم فقط للجنس
+face_app = FaceAnalysis(name="gender", providers=["CPUExecutionProvider"])
+face_app.prepare(ctx_id=-1, det_size=(640, 640))  # ctx_id=-1 يعني CPU
 
 # ===========================
-# تشغيل الخادم
+# صفحة HTML
+# ===========================
+HTML_PAGE = """
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>تحليل الجنس - InsightFace</title>
+  <style>
+    body {font-family: Arial; text-align:center; background:#f5f5f5;}
+    h2 {color:#333;}
+    form {margin:30px auto; padding:20px; background:white; border-radius:15px; width:350px; box-shadow:0 0 10px #ccc;}
+    input[type=file]{margin:10px;}
+    img {margin-top:20px; width:250px; border-radius:10px;}
+    .info {background:#fff; display:inline-block; margin-top:20px; padding:15px; border-radius:10px; box-shadow:0 0 5px #aaa;}
+  </style>
+</head>
+<body>
+  <h2>تحليل جنس الوجه</h2>
+  <form method="POST" enctype="multipart/form-data">
+    <input type="file" name="image" accept="image/*" required>
+    <br><br>
+    <button type="submit">تحليل الصورة</button>
+  </form>
+  {% if result %}
+    <div class="info">
+      <h3>👤 النتيجة:</h3>
+      <p>الجنس: {{ 'ذكر' if result.gender == 1 else 'أنثى' }}</p>
+      <p>عدد الوجوه المكتشفة: {{ result.faces }}</p>
+      <img src="{{ image_url }}">
+    </div>
+  {% endif %}
+</body>
+</html>
+"""
+
+# ===========================
+# مسارات التطبيق
+# ===========================
+@app.route("/", methods=["GET", "POST"])
+def index():
+    if request.method == "POST":
+        file = request.files["image"]
+        if file:
+            path = "uploaded.jpg"
+            file.save(path)
+
+            img = cv2.imread(path)
+            faces = face_app.get(img)
+
+            if len(faces) == 0:
+                return render_template_string(HTML_PAGE, result=None, image_url=None)
+
+            face = faces[0]
+            result = type("Result", (), {})()
+            result.gender = int(face.gender)
+            result.faces = len(faces)
+
+            return render_template_string(HTML_PAGE, result=result, image_url="/image")
+    return render_template_string(HTML_PAGE, result=None, image_url=None)
+
+@app.route("/image")
+def serve_image():
+    return send_file("uploaded.jpg", mimetype="image/jpeg")
+
+# ===========================
+# تشغيل التطبيق
 # ===========================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    print(f"🌐 API جاهز على: http://0.0.0.0:{port}/gender")
+    print(f"🌐 افتح المتصفح على: http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port)
