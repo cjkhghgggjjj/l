@@ -1,1 +1,5 @@
-requests
+flask
+insightface
+onnxruntime
+opencv-python-headless
+numpy
