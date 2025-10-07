@@ -1,5 +1,7 @@
 import sys
 import subprocess
+import importlib
+import os
 
 # ===========================
 # تثبيت المكتبات تلقائياً
@@ -17,7 +19,7 @@ required_libs = [
 
 for lib in required_libs:
     try:
-        __import__(lib.split('-')[0])
+        importlib.import_module(lib.replace('-', '_'))
     except ImportError:
         print(f"🔹 تثبيت {lib} تلقائيًا...")
         install(lib)
@@ -35,9 +37,9 @@ from insightface.app import FaceAnalysis
 # ===========================
 app = Flask(__name__)
 
-# تحميل النموذج الخفيف مرة واحدة عند التشغيل
-face_app = FaceAnalysis(name="antelope")  # أصغر نموذج متاح
-face_app.prepare(ctx_id=0, det_size=(640, 640))
+# تحميل النموذج الخفيف مرة واحدة عند التشغيل (CPU)
+face_app = FaceAnalysis(name="antelope")
+face_app.prepare(ctx_id=-1, det_size=(640, 640))  # CPU
 
 @app.route("/gender", methods=["POST"])
 def gender():
@@ -45,22 +47,25 @@ def gender():
     if not file:
         return jsonify({"error": "No image uploaded"}), 400
 
-    # قراءة الصورة مباشرة من الذاكرة
     npimg = np.frombuffer(file.read(), np.uint8)
     img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    if img is None:
+        return jsonify({"error": "Invalid image"}), 400
 
     faces = face_app.get(img)
     if not faces:
         return jsonify({"error": "No face detected"}), 404
 
-    gender = int(faces[0].gender)  # 1=ذكر, 0=أنثى
-    return jsonify({"gender": "ذكر" if gender == 1 else "أنثى"})
+    gender_val = int(faces[0].gender) if faces[0].gender is not None else -1
+    if gender_val == -1:
+        return jsonify({"error": "Could not determine gender"}), 500
+
+    return jsonify({"gender": "ذكر" if gender_val == 1 else "أنثى"})
 
 # ===========================
 # تشغيل الخادم
 # ===========================
 if __name__ == "__main__":
-    import os
     port = int(os.getenv("PORT", 5000))
     print(f"🌐 API جاهز على: http://0.0.0.0:{port}/gender")
     app.run(host="0.0.0.0", port=port)
