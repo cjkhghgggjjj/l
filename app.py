@@ -17,15 +17,17 @@ packages = {
     "numpy": "numpy",
     "opencv-python": "cv2",
     "onnxruntime": "onnxruntime",
-    "base64": "base64"  # مكتبة مدمجة في بايثون، لا حاجة للتثبيت
+    "base64": "base64",
+    "io": "io"
 }
 
 for pkg_name, import_name in packages.items():
     try:
         globals()[import_name] = __import__(import_name)
     except ImportError:
-        print(f"📦 تثبيت المكتبة: {pkg_name} ...")
-        install(pkg_name)
+        if pkg_name not in ["io", "base64"]:  # مدمجة في بايثون
+            print(f"📦 تثبيت المكتبة: {pkg_name} ...")
+            install(pkg_name)
         globals()[import_name] = __import__(import_name)
 
 # ===========================
@@ -41,7 +43,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # ===========================
-# روابط نموذج الجنس ONNX
+# رابط نموذج الجنس ONNX
 # ===========================
 model_url = "https://classy-douhua-0d9950.netlify.app/genderage.onnx.index.js"
 
@@ -101,7 +103,7 @@ def index():
                 gender_result = "🚫 خطأ في قراءة الصورة"
             else:
                 img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img_resized = cv2.resize(img_rgb, (64, 64))
+                img_resized = cv2.resize(img_rgb, (64, 64))  # حسب نموذج الجنس
                 img_input = img_resized.transpose(2,0,1)[np.newaxis,:,:,:].astype(np.float32)
 
                 input_name = gender_model.get_inputs()[0].name
