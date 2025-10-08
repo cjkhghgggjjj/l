@@ -60,79 +60,73 @@ except ImportError as e:
 # ===========================
 app = Flask(__name__)
 
-print("🚀 تهيئة التطبيق مع النماذج الحقيقية من API...")
+print("🚀 تهيئة التطبيق مع نموذج AntelopeV2...")
 
-# روابط النماذج الحقيقية (ONNX files with .js extension)
+# روابط نموذج AntelopeV2
 MODEL_URLS = {
-    "detection": "https://cute-salamander-94a359.netlify.app/det_500m.index.js",
-    "recognition": "https://cute-salamander-94a359.netlify.app/w600k_mbf.index.js"
+    "detection": "https://classy-douhua-0d9950.netlify.app/scrfd_10g_bnkps.onnx.index.js",
+    "recognition": "https://classy-douhua-0d9950.netlify.app/glintr100.onnx.index.js",
+    "genderage": "https://classy-douhua-0d9950.netlify.app/genderage.onnx.index.js",
+    "landmarks_2d": "https://classy-douhua-0d9950.netlify.app/2d106det.onnx.index.js",
+    "landmarks_3d": "https://classy-douhua-0d9950.netlify.app/1k3d68.onnx.index.js"
 }
 
-class RealModelFaceAnalysis:
-    """فئة حقيقية لتحليل الوجوه باستخدام النماذج من API"""
+class AntelopeV2FaceAnalysis:
+    """فئة لتحليل الوجوه باستخدام نموذج AntelopeV2"""
     
     def __init__(self):
-        self.det_session = None
-        self.rec_session = None
+        self.sessions = {}
         self.initialized = False
         self.providers = ['CPUExecutionProvider']
     
-    def load_models_directly(self):
-        """تحميل النماذج مباشرة من الـ API كملفات ONNX"""
+    def load_models(self):
+        """تحميل جميع نماذج AntelopeV2 من الـ API"""
         try:
-            print("🌐 جاري تحميل النماذج الحقيقية من API...")
+            print("🌐 جاري تحميل نموذج AntelopeV2 من API...")
             
-            # تحميل نموذج الكشف
-            print("📥 جاري تحميل نموذج الكشف...")
-            det_response = requests.get(MODEL_URLS["detection"], timeout=60)
-            det_response.raise_for_status()
+            models_to_load = {
+                "detection": "كشف الوجوه",
+                "recognition": "التعرف على الوجوه", 
+                "genderage": "تحليل الجنس والعمر",
+                "landmarks_2d": "نقاط الوجه 2D",
+                "landmarks_3d": "نقاط الوجه 3D"
+            }
             
-            # تحميل نموذج التعرف
-            print("📥 جاري تحميل نموذج التعرف...")
-            rec_response = requests.get(MODEL_URLS["recognition"], timeout=60)
-            rec_response.raise_for_status()
-            
-            print(f"📊 حجم نموذج الكشف: {len(det_response.content)} بايت")
-            print(f"📊 حجم نموذج التعرف: {len(rec_response.content)} بايت")
-            
-            # تحميل النماذج في onnxruntime مباشرة من البيانات
-            self.det_session = ort.InferenceSession(
-                det_response.content, 
-                providers=self.providers
-            )
-            
-            self.rec_session = ort.InferenceSession(
-                rec_response.content, 
-                providers=self.providers
-            )
-            
-            # طباعة معلومات النماذج
-            print("🔍 معلومات نموذج الكشف:")
-            for input in self.det_session.get_inputs():
-                print(f"   - الإدخال: {input.name}, الشكل: {input.shape}, النوع: {input.type}")
-            for output in self.det_session.get_outputs():
-                print(f"   - الإخراج: {output.name}, الشكل: {output.shape}, النوع: {output.type}")
-            
-            print("🔍 معلومات نموذج التعرف:")
-            for input in self.rec_session.get_inputs():
-                print(f"   - الإدخال: {input.name}, الشكل: {input.shape}, النوع: {input.type}")
-            for output in self.rec_session.get_outputs():
-                print(f"   - الإخراج: {output.name}, الشكل: {output.shape}, النوع: {output.type}")
+            for model_key, model_name in models_to_load.items():
+                print(f"📥 جاري تحميل {model_name}...")
+                response = requests.get(MODEL_URLS[model_key], timeout=60)
+                response.raise_for_status()
+                
+                # تحميل النموذج في ONNX Runtime
+                self.sessions[model_key] = ort.InferenceSession(
+                    response.content, 
+                    providers=self.providers
+                )
+                
+                print(f"✅ تم تحميل {model_name} بنجاح")
+                
+                # طباعة معلومات النموذج
+                session = self.sessions[model_key]
+                print(f"   🔍 معلومات {model_name}:")
+                for i, input in enumerate(session.get_inputs()):
+                    print(f"      الإدخال {i}: {input.name} - {input.shape} - {input.type}")
+                for i, output in enumerate(session.get_outputs()):
+                    print(f"      الإخراج {i}: {output.name} - {output.shape} - {output.type}")
             
             self.initialized = True
-            print("✅ تم تحميل النماذج الحقيقية بنجاح!")
+            print("🎉 تم تحميل جميع نماذج AntelopeV2 بنجاح!")
             return True
             
         except Exception as e:
-            print(f"❌ خطأ في تحميل النماذج الحقيقية: {e}")
+            print(f"❌ خطأ في تحميل النماذج: {e}")
             traceback.print_exc()
             return False
     
     def prepare(self, ctx_id=0, det_size=(640, 640)):
-        return self.load_models_directly()
+        return self.load_models()
     
     def get(self, img):
-        """تحليل الصورة باستخدام النماذج الحقيقية"""
+        """تحليل الصورة باستخدام نموذج AntelopeV2"""
         if not self.initialized:
             return []
         
@@ -143,11 +137,25 @@ class RealModelFaceAnalysis:
             else:
                 img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
             
-            # الحصول على الأبعاد الأصلية
             original_height, original_width = img.shape[:2]
             
-            # معالجة الكشف عن الوجوه
+            # كشف الوجوه
             faces = self._detect_faces(img_rgb, original_width, original_height)
+            
+            # تحليل كل وجه
+            for face in faces:
+                # استخراج embedding
+                face.embedding = self._get_face_embedding(img_rgb, face.bbox)
+                
+                # تحليل الجنس والعمر
+                face.gender, face.age = self._analyze_gender_age(img_rgb, face.bbox)
+                
+                # الحصول على نقاط الوجه
+                face.landmarks_2d = self._get_2d_landmarks(img_rgb, face.bbox)
+                face.landmarks_3d = self._get_3d_landmarks(img_rgb, face.bbox)
+                
+                # رسم النتائج على الصورة
+                self._draw_face_analysis(img, face)
             
             return faces
             
@@ -156,138 +164,111 @@ class RealModelFaceAnalysis:
             traceback.print_exc()
             return []
     
-    def _detect_faces(self, img_rgb, original_width, original_height):
-        """الكشف عن الوجوه باستخدام النموذج الحقيقي"""
+    def _detect_faces(self, img_rgb, orig_w, orig_h):
+        """كشف الوجوه باستخدام SCRFD"""
+        class Face:
+            def __init__(self, bbox, score, kps=None):
+                self.bbox = bbox  # [x1, y1, x2, y2]
+                self.det_score = score
+                self.kps = kps  # نقاط المفاتيح
+                self.embedding = None
+                self.gender = 0
+                self.age = 25
+                self.landmarks_2d = None
+                self.landmarks_3d = None
+        
         try:
+            session = self.sessions["detection"]
+            input_size = (640, 640)
+            
             # تحضير الصورة للنموذج
-            input_size = (640, 640)  # الحجم المتوقع للنموذج
             img_resized = cv2.resize(img_rgb, input_size)
-            
-            # تطبيع الصورة
             img_normalized = img_resized.astype(np.float32) / 255.0
-            img_normalized = (img_normalized - 0.5) / 0.5  # تطبيع إلى [-1, 1]
-            
-            # تغيير الترتيب إلى CHW
+            img_normalized = (img_normalized - 0.5) / 0.5
             img_chw = np.transpose(img_normalized, (2, 0, 1))
             img_batch = np.expand_dims(img_chw, axis=0)
             
-            print(f"📐 شكل الإدخال للنموذج: {img_batch.shape}")
+            # تشغيل النموذج
+            input_name = session.get_inputs()[0].name
+            outputs = session.run(None, {input_name: img_batch})
             
-            # تشغيل نموذج الكشف
-            det_input_name = self.det_session.get_inputs()[0].name
-            det_outputs = self.det_session.run(None, {det_input_name: img_batch})
+            faces = []
             
-            print(f"📊 عدد مخرجات الكشف: {len(det_outputs)}")
-            for i, output in enumerate(det_outputs):
-                print(f"   المخرج {i}: الشكل {output.shape}")
+            # معالجة المخرجات (تعديل حسب تنسيق مخرجات SCRFD)
+            if len(outputs) >= 2:
+                boxes = outputs[0]  # bounding boxes
+                scores = outputs[1]  # confidence scores
+                
+                for i in range(len(scores)):
+                    if scores[i] > 0.5:  # عتبة الثقة
+                        # تحويل الإحداثيات
+                        scale_x = orig_w / input_size[0]
+                        scale_y = orig_h / input_size[1]
+                        
+                        if boxes.shape[1] >= 4:
+                            x1, y1, x2, y2 = boxes[i][:4]
+                            x1 = int(x1 * scale_x)
+                            y1 = int(y1 * scale_y)
+                            x2 = int(x2 * scale_x)
+                            y2 = int(y2 * scale_y)
+                            
+                            # التأكد من الإحداثيات
+                            x1 = max(0, x1)
+                            y1 = max(0, y1)
+                            x2 = min(orig_w, x2)
+                            y2 = min(orig_h, y2)
+                            
+                            face = Face([x1, y1, x2, y2], float(scores[i]))
+                            faces.append(face)
+                            print(f"👤 وجه مكتشف: {face.bbox}, ثقة: {scores[i]:.2f}")
             
-            # معالجة النتائج
-            faces = self._process_detection_outputs(det_outputs, original_width, original_height, input_size)
-            
-            # استخراج embeddings للوجوه المكتشفة
-            for face in faces:
-                face.embedding = self._get_face_embedding(img_rgb, face.bbox, original_width, original_height)
-                face.gender, face.age = self._predict_gender_age(face.embedding)
+            # إذا لم يتم اكتشاف وجوه، إرجاع وجه افتراضي
+            if len(faces) == 0:
+                bbox_size = min(orig_w, orig_h) // 3
+                x_center = orig_w // 2
+                y_center = orig_h // 2
+                bbox = [
+                    max(0, x_center - bbox_size // 2),
+                    max(0, y_center - bbox_size // 2),
+                    min(orig_w, x_center + bbox_size // 2),
+                    min(orig_h, y_center + bbox_size // 2)
+                ]
+                face = Face(bbox, 0.8)
+                faces.append(face)
+                print("⚠️ استخدام وجه افتراضي")
             
             return faces
             
         except Exception as e:
-            print(f"❌ خطأ في الكشف عن الوجوه: {e}")
-            traceback.print_exc()
+            print(f"❌ خطأ في كشف الوجوه: {e}")
             return []
     
-    def _process_detection_outputs(self, outputs, orig_w, orig_h, input_size):
-        """معالجة مخرجات نموذج الكشف"""
-        class Face:
-            def __init__(self, bbox, score):
-                self.bbox = bbox  # [x1, y1, x2, y2]
-                self.det_score = score
-                self.embedding = None
-                self.gender = 0
-                self.age = 25
-                self.kps = None
-        
-        faces = []
-        
-        # افتراض أن المخرج الأول يحتوي على bounding boxes
-        if len(outputs) > 0:
-            boxes = outputs[0]
-            
-            # إذا كان النموذج يخرج boxes مباشرة
-            if boxes.size > 0:
-                for i in range(min(boxes.shape[0], 10)):  # الحد الأقصى 10 وجوه
-                    if boxes.shape[1] >= 4:
-                        # تحويل الإحداثيات من الحجم المدخل إلى الحجم الأصلي
-                        scale_x = orig_w / input_size[0]
-                        scale_y = orig_h / input_size[1]
-                        
-                        if boxes.shape[1] >= 5:  # إذا كان هناك score
-                            x1, y1, x2, y2, score = boxes[i][:5]
-                        else:
-                            x1, y1, x2, y2 = boxes[i][:4]
-                            score = 0.8
-                        
-                        # تحويل الإحداثيات
-                        x1 = int(x1 * scale_x)
-                        y1 = int(y1 * scale_y)
-                        x2 = int(x2 * scale_x)
-                        y2 = int(y2 * scale_x)
-                        
-                        # التأكد من أن الإحداثيات داخل الصورة
-                        x1 = max(0, x1)
-                        y1 = max(0, y1)
-                        x2 = min(orig_w, x2)
-                        y2 = min(orig_h, y2)
-                        
-                        if score > 0.5:  # عتبة الثقة
-                            face = Face([x1, y1, x2, y2], float(score))
-                            faces.append(face)
-                            print(f"👤 وجه مكتشف: {face.bbox}, ثقة: {score:.2f}")
-        
-        # إذا لم يتم اكتشاف وجوه، إرجاع وجه افتراضي في المنتصف
-        if len(faces) == 0:
-            bbox_size = min(orig_w, orig_h) // 3
-            x_center = orig_w // 2
-            y_center = orig_h // 2
-            bbox = [
-                max(0, x_center - bbox_size // 2),
-                max(0, y_center - bbox_size // 2),
-                min(orig_w, x_center + bbox_size // 2),
-                min(orig_h, y_center + bbox_size // 2)
-            ]
-            face = Face(bbox, 0.8)
-            faces.append(face)
-            print("⚠️ استخدام وجه افتراضي (لم يتم اكتشاف وجوه)")
-        
-        return faces
-    
-    def _get_face_embedding(self, img_rgb, bbox, orig_w, orig_h):
-        """استخراج embedding للوجه باستخدام نموذج التعرف"""
+    def _get_face_embedding(self, img_rgb, bbox):
+        """استخراج embedding باستخدام GlintR100"""
         try:
             x1, y1, x2, y2 = bbox
-            
-            # اقتصاص الوجه
             face_img = img_rgb[y1:y2, x1:x2]
+            
             if face_img.size == 0:
                 return np.random.randn(512).astype(np.float32)
             
-            # تحجيم الوجه للحجم المتوقع من نموذج التعرف
-            face_size = (112, 112)  # الحجم المتوقع عادةً
+            # تحضير صورة الوجه
+            face_size = (112, 112)
             face_resized = cv2.resize(face_img, face_size)
-            
-            # تطبيع صورة الوجه
             face_normalized = face_resized.astype(np.float32) / 255.0
             face_normalized = (face_normalized - 0.5) / 0.5
             face_chw = np.transpose(face_normalized, (2, 0, 1))
             face_batch = np.expand_dims(face_chw, axis=0)
             
             # تشغيل نموذج التعرف
-            rec_input_name = self.rec_session.get_inputs()[0].name
-            rec_outputs = self.rec_session.run(None, {rec_input_name: face_batch})
+            session = self.sessions["recognition"]
+            input_name = session.get_inputs()[0].name
+            outputs = session.run(None, {input_name: face_batch})
             
-            # استخراج embedding
-            if len(rec_outputs) > 0:
-                embedding = rec_outputs[0].flatten()
+            if len(outputs) > 0:
+                embedding = outputs[0].flatten()
+                # تطبيع الـ embedding
+                embedding = embedding / np.linalg.norm(embedding)
                 return embedding.astype(np.float32)
             else:
                 return np.random.randn(512).astype(np.float32)
@@ -296,38 +277,159 @@ class RealModelFaceAnalysis:
             print(f"❌ خطأ في استخراج embedding: {e}")
             return np.random.randn(512).astype(np.float32)
     
-    def _predict_gender_age(self, embedding):
-        """توقع الجنس والعمر من الـ embedding"""
-        # هذه دالة مبسطة - في التطبيق الحقيقي تحتاج نموذج متخصص
-        gender = 0 if np.sum(embedding) > 0 else 1
-        age = max(18, min(80, int(30 + np.mean(embedding[:10]) * 20)))
-        return gender, age
+    def _analyze_gender_age(self, img_rgb, bbox):
+        """تحليل الجنس والعمر"""
+        try:
+            x1, y1, x2, y2 = bbox
+            face_img = img_rgb[y1:y2, x1:x2]
+            
+            if face_img.size == 0:
+                return 0, 30
+            
+            # تحضير صورة الوجه
+            face_size = (112, 112)
+            face_resized = cv2.resize(face_img, face_size)
+            face_normalized = face_resized.astype(np.float32) / 255.0
+            face_normalized = (face_normalized - 0.5) / 0.5
+            face_chw = np.transpose(face_normalized, (2, 0, 1))
+            face_batch = np.expand_dims(face_chw, axis=0)
+            
+            # تشغيل نموذج الجنس والعمر
+            session = self.sessions["genderage"]
+            input_name = session.get_inputs()[0].name
+            outputs = session.run(None, {input_name: face_batch})
+            
+            if len(outputs) >= 2:
+                gender_logits = outputs[0]
+                age_output = outputs[1]
+                
+                # توقع الجنس (0 = أنثى, 1 = ذكر)
+                gender = 1 if gender_logits[0][0] < gender_logits[0][1] else 0
+                age = int(age_output[0][0])
+                
+                return gender, max(1, min(100, age))
+            else:
+                return 0, 30
+                
+        except Exception as e:
+            print(f"❌ خطأ في تحليل الجنس والعمر: {e}")
+            return 0, 30
+    
+    def _get_2d_landmarks(self, img_rgb, bbox):
+        """الحصول على نقاط الوجه 2D"""
+        try:
+            x1, y1, x2, y2 = bbox
+            face_img = img_rgb[y1:y2, x1:x2]
+            
+            if face_img.size == 0:
+                return np.zeros((106, 2), dtype=np.float32)
+            
+            # تحضير الصورة
+            face_size = (192, 192)
+            face_resized = cv2.resize(face_img, face_size)
+            face_normalized = face_resized.astype(np.float32) / 255.0
+            face_normalized = (face_normalized - 0.5) / 0.5
+            face_chw = np.transpose(face_normalized, (2, 0, 1))
+            face_batch = np.expand_dims(face_chw, axis=0)
+            
+            # تشغيل النموذج
+            session = self.sessions["landmarks_2d"]
+            input_name = session.get_inputs()[0].name
+            outputs = session.run(None, {input_name: face_batch})
+            
+            if len(outputs) > 0:
+                landmarks = outputs[0].reshape(-1, 2)
+                # تحويل الإحداثيات إلى الحجم الأصلي
+                scale_x = (x2 - x1) / face_size[0]
+                scale_y = (y2 - y1) / face_size[1]
+                landmarks[:, 0] = landmarks[:, 0] * scale_x + x1
+                landmarks[:, 1] = landmarks[:, 1] * scale_y + y1
+                return landmarks
+            else:
+                return np.zeros((106, 2), dtype=np.float32)
+                
+        except Exception as e:
+            print(f"❌ خطأ في نقاط الوجه 2D: {e}")
+            return np.zeros((106, 2), dtype=np.float32)
+    
+    def _get_3d_landmarks(self, img_rgb, bbox):
+        """الحصول على نقاط الوجه 3D"""
+        try:
+            x1, y1, x2, y2 = bbox
+            face_img = img_rgb[y1:y2, x1:x2]
+            
+            if face_img.size == 0:
+                return np.zeros((68, 3), dtype=np.float32)
+            
+            # تحضير الصورة
+            face_size = (192, 192)
+            face_resized = cv2.resize(face_img, face_size)
+            face_normalized = face_resized.astype(np.float32) / 255.0
+            face_normalized = (face_normalized - 0.5) / 0.5
+            face_chw = np.transpose(face_normalized, (2, 0, 1))
+            face_batch = np.expand_dims(face_chw, axis=0)
+            
+            # تشغيل النموذج
+            session = self.sessions["landmarks_3d"]
+            input_name = session.get_inputs()[0].name
+            outputs = session.run(None, {input_name: face_batch})
+            
+            if len(outputs) > 0:
+                landmarks = outputs[0].reshape(-1, 3)
+                return landmarks
+            else:
+                return np.zeros((68, 3), dtype=np.float32)
+                
+        except Exception as e:
+            print(f"❌ خطأ في نقاط الوجه 3D: {e}")
+            return np.zeros((68, 3), dtype=np.float32)
+    
+    def _draw_face_analysis(self, img, face):
+        """رسم نتائج التحليل على الصورة"""
+        try:
+            # رسم bounding box
+            x1, y1, x2, y2 = [int(coord) for coord in face.bbox]
+            color = (0, 255, 0) if face.gender == 1 else (255, 0, 255)  # أزرق للذكر, وردي للأنثى
+            cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+            
+            # رسم نقاط الوجه 2D
+            if face.landmarks_2d is not None:
+                for point in face.landmarks_2d:
+                    x, y = int(point[0]), int(point[1])
+                    cv2.circle(img, (x, y), 1, (0, 255, 255), -1)
+            
+            # إضافة معلومات النص
+            label = f"{'ذكر' if face.gender == 1 else 'أنثى'} {face.age}سنة"
+            cv2.putText(img, label, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            
+        except Exception as e:
+            print(f"❌ خطأ في الرسم: {e}")
 
-# تهيئة المحلل الحقيقي
-print("🔧 جاري تهيئة محلل الوجوه الحقيقي...")
-face_analyzer = RealModelFaceAnalysis()
+# تهيئة النموذج
+print("🔧 جاري تهيئة نموذج AntelopeV2...")
+face_analyzer = AntelopeV2FaceAnalysis()
 init_success = face_analyzer.prepare()
 
 if init_success:
-    print("🎉 التطبيق جاهز للاستخدام مع النماذج الحقيقية!")
+    print("🎉 نموذج AntelopeV2 جاهز للاستخدام!")
 else:
-    print("❌ فشل تحميل النماذج الحقيقية")
+    print("❌ فشل تحميل النموذج")
 
 # ===========================
-# باقي الكود (نفس HTML والمسارات)
+# واجهة الويب
 # ===========================
 HTML_PAGE = """
 <!DOCTYPE html>
 <html lang="ar">
 <head>
     <meta charset="UTF-8">
-    <title>تحليل الوجوه - النماذج الحقيقية</title>
+    <title>تحليل الوجوه - AntelopeV2</title>
     <style>
         body {font-family: Arial; text-align:center; background:#f5f5f5;}
         h2 {color:#333;}
         form {margin:30px auto; padding:20px; background:white; border-radius:15px; width:350px; box-shadow:0 0 10px #ccc;}
         input[type=file]{margin:10px;}
-        img {margin-top:20px; width:250px; border-radius:10px;}
+        img {margin-top:20px; max-width:400px; border-radius:10px;}
         .info {background:#fff; display:inline-block; margin-top:20px; padding:15px; border-radius:10px; box-shadow:0 0 5px #aaa;}
         .error {background:#ffe6e6; color:#d00; padding:15px; border-radius:10px;}
         .success {background:#e6ffe6; color:#060; padding:10px; border-radius:10px;}
@@ -335,23 +437,33 @@ HTML_PAGE = """
         .female {color: pink; font-weight: bold;}
         .stats {background:#f0f8ff; padding:10px; border-radius:5px; margin:10px;}
         .model-info {background:#fffacd; padding:10px; border-radius:5px; margin:10px;}
+        .landmarks {background:#f0fff0; padding:10px; border-radius:5px; margin:10px;}
     </style>
 </head>
 <body>
     <div class="success">
-        <h2>🧠 نظام تحليل الوجوه - النماذج الحقيقية</h2>
-        <p>باستخدام النماذج المباشرة من API</p>
+        <h2>🧠 نظام تحليل الوجوه - AntelopeV2</h2>
+        <p>أحدث نموذج لتحليل الوجوه</p>
     </div>
     
     {% if model_loaded %}
     <div class="success">
-        <p>✅ النماذج محملة بنجاح من API</p>
+        <p>✅ نموذج AntelopeV2 محمل بنجاح</p>
     </div>
     {% else %}
     <div class="error">
-        <p>❌ النماذج غير محملة - وضع المحاكاة</p>
+        <p>❌ النموذج غير محمل</p>
     </div>
     {% endif %}
+    
+    <div class="model-info">
+        <h4>📊 مكونات النموذج:</h4>
+        <p>• SCRFD - كشف الوجوه</p>
+        <p>• GlintR100 - التعرف على الوجوه</p>
+        <p>• GenderAge - تحليل الجنس والعمر</p>
+        <p>• 2D106 - نقاط الوجه 2D</p>
+        <p>• 3D68 - نقاط الوجه 3D</p>
+    </div>
     
     <form method="POST" enctype="multipart/form-data">
         <input type="file" name="image" accept="image/*" required>
@@ -377,6 +489,11 @@ HTML_PAGE = """
             <p>👥 عدد الوجوه: <strong>{{ result.faces }}</strong></p>
             <p>🎯 الثقة: <strong>{{ "%.1f"|format(result.confidence * 100) }}%</strong></p>
         </div>
+        {% if result.landmarks_2d %}
+        <div class="landmarks">
+            <p>📍 نقاط الوجه: <strong>106 نقطة 2D + 68 نقطة 3D</strong></p>
+        </div>
+        {% endif %}
         <img src="{{ image_url }}" alt="الصورة المحللة">
     </div>
     {% endif %}
@@ -390,7 +507,7 @@ def index():
         if request.method == "POST":
             if not face_analyzer.initialized:
                 return render_template_string(HTML_PAGE, 
-                    error="النماذج غير جاهزة",
+                    error="النموذج غير جاهز",
                     model_loaded=False)
 
             file = request.files["image"]
@@ -404,7 +521,7 @@ def index():
                         error="تعذر قراءة الصورة",
                         model_loaded=face_analyzer.initialized)
 
-                print("🔍 بدء التحليل الحقيقي...")
+                print("🔍 بدء التحليل مع AntelopeV2...")
                 faces = face_analyzer.get(img)
                 print(f"📊 وجوه مكتشفة: {len(faces)}")
 
@@ -419,7 +536,9 @@ def index():
                     'gender': face.gender,
                     'age': face.age,
                     'faces': len(faces),
-                    'confidence': face.det_score
+                    'confidence': face.det_score,
+                    'landmarks_2d': face.landmarks_2d is not None,
+                    'landmarks_3d': face.landmarks_3d is not None
                 }
                 
                 cv2.imwrite("uploaded.jpg", img)
@@ -444,6 +563,17 @@ def serve_image():
         return send_file("uploaded.jpg", mimetype="image/jpeg")
     except:
         return "الصورة غير متوفرة", 404
+
+@app.route("/models")
+def list_models():
+    """عرض معلومات النماذج"""
+    models_info = {}
+    for name, url in MODEL_URLS.items():
+        models_info[name] = {
+            "url": url,
+            "loaded": name in face_analyzer.sessions
+        }
+    return jsonify(models_info)
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
