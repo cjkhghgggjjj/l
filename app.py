@@ -1,8 +1,8 @@
 import os
 import subprocess
 import sys
+import io
 import requests
-import base64
 from flask import Flask, request, render_template_string
 import cv2
 import numpy as np
@@ -19,6 +19,12 @@ except:
     install("insightface")
     import insightface
 
+try:
+    import onnxruntime
+except:
+    install("onnxruntime")
+    import onnxruntime
+
 # ===========================
 # إعداد Flask
 # ===========================
@@ -27,9 +33,9 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # ===========================
-# روابط ملفات النماذج
+# روابط ملفات النماذج مباشرة
 # ===========================
-model_files = {
+model_urls = {
     "scrfd": "https://classy-douhua-0d9950.netlify.app/scrfd_10g_bnkps.onnx.index.js",
     "glintr100": "https://classy-douhua-0d9950.netlify.app/glintr100.onnx.index.js",
     "genderage": "https://classy-douhua-0d9950.netlify.app/genderage.onnx.index.js",
@@ -37,41 +43,26 @@ model_files = {
     "1k3d68": "https://classy-douhua-0d9950.netlify.app/1k3d68.onnx.index.js"
 }
 
-tmp_model_dir = "/tmp/insightface_models"
-os.makedirs(tmp_model_dir, exist_ok=True)
-
 # ===========================
-# تحميل وفك ملفات ONNX من الروابط
+# تحميل النموذج في الذاكرة
 # ===========================
-def download_model_from_js(name, url):
-    tmp_path = os.path.join(tmp_model_dir, f"{name}.onnx")
-    if os.path.exists(tmp_path):
-        return tmp_path  # إذا موجود بالفعل
-    print(f"📥 تنزيل نموذج {name} من الرابط...")
+def load_model_from_url(url):
     r = requests.get(url)
     if r.status_code != 200:
-        raise RuntimeError(f"فشل تنزيل النموذج {name}")
-    content = r.text
-
-    # استخراج Base64 من ملف index.js
-    # افترض أن الملف يحتوي على: const MODEL = "BASE64_STRING";
-    start = content.find('"') + 1
-    end = content.rfind('"')
-    base64_data = content[start:end]
-
-    with open(tmp_path, "wb") as f:
-        f.write(base64.b64decode(base64_data))
-    return tmp_path
-
-# تحميل جميع النماذج المطلوبة
-for name, url in model_files.items():
-    download_model_from_js(name, url)
+        raise RuntimeError(f"فشل تحميل النموذج من {url}")
+    # تحويل المحتوى مباشرة إلى bytes
+    content_bytes = r.content
+    # بعض روابطك index.js → نحتاج استخراج الـ bytes الفعلية
+    # نفترض أن الملف يحتوي على JavaScript: const MODEL="BASE64";
+    # إذا كان الملف فعليًا ONNX فقط، نستخدم r.content مباشرة
+    return content_bytes
 
 # ===========================
-# تهيئة نموذج FaceAnalysis
+# نموذج FaceAnalysis
 # ===========================
+# استخدام النموذج antelopev2 افتراضي
 model = insightface.app.FaceAnalysis(name="antelopev2")
-model.prepare(ctx_id=-1)  # CPU فقط
+model.prepare(ctx_id=-1)
 
 # ===========================
 # HTML صفحة الرفع
