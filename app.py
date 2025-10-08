@@ -1,25 +1,37 @@
 import os
-import subprocess
 import sys
-import requests
-import io
-import base64
-import numpy as np
-from flask import Flask, request, render_template_string
-import cv2
-import onnxruntime as ort
+import subprocess
 
 # ===========================
-# تثبيت المكتبات تلقائيًا
+# دالة لتثبيت المكتبات تلقائيًا
 # ===========================
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-for pkg in ["onnxruntime", "numpy", "flask", "opencv-python"]:
+# ===========================
+# تثبيت واستيراد المكتبات المطلوبة
+# ===========================
+packages = {
+    "requests": "requests",
+    "flask": "flask",
+    "numpy": "numpy",
+    "opencv-python": "cv2",
+    "onnxruntime": "onnxruntime",
+    "base64": "base64"  # مكتبة مدمجة في بايثون، لا حاجة للتثبيت
+}
+
+for pkg_name, import_name in packages.items():
     try:
-        __import__(pkg)
+        globals()[import_name] = __import__(import_name)
     except ImportError:
-        install(pkg)
+        print(f"📦 تثبيت المكتبة: {pkg_name} ...")
+        install(pkg_name)
+        globals()[import_name] = __import__(import_name)
+
+# ===========================
+# استيراد Flask بعد التثبيت
+# ===========================
+from flask import Flask, request, render_template_string
 
 # ===========================
 # إعداد Flask
@@ -29,14 +41,12 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # ===========================
-# روابط ملفات النماذج ONNX
+# روابط نموذج الجنس ONNX
 # ===========================
-model_urls = {
-    "genderage": "https://classy-douhua-0d9950.netlify.app/genderage.onnx.index.js"
-}
+model_url = "https://classy-douhua-0d9950.netlify.app/genderage.onnx.index.js"
 
 # ===========================
-# تحميل نموذج ONNX من الرابط في الذاكرة
+# تحميل النموذج من الرابط مباشرة في الذاكرة
 # ===========================
 def load_onnx_model(url):
     r = requests.get(url)
@@ -44,23 +54,19 @@ def load_onnx_model(url):
         raise RuntimeError(f"فشل تحميل النموذج من {url}")
     
     content = r.content
-    # استخراج Base64 من index.js
     text = content.decode(errors="ignore")
     start = text.find('"') + 1
     end = text.rfind('"')
     base64_data = text[start:end]
     model_bytes = io.BytesIO(base64.b64decode(base64_data))
     
-    sess = ort.InferenceSession(model_bytes.read(), providers=['CPUExecutionProvider'])
+    sess = onnxruntime.InferenceSession(model_bytes.read(), providers=['CPUExecutionProvider'])
     return sess
 
-# ===========================
-# تهيئة نموذج الجنس فقط
-# ===========================
-gender_model = load_onnx_model(model_urls["genderage"])
+gender_model = load_onnx_model(model_url)
 
 # ===========================
-# HTML صفحة الرفع
+# صفحة HTML للرفع
 # ===========================
 HTML_PAGE = """
 <!doctype html>
@@ -95,13 +101,12 @@ def index():
                 gender_result = "🚫 خطأ في قراءة الصورة"
             else:
                 img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img_resized = cv2.resize(img_rgb, (64, 64))  # حسب نموذج الجنس
+                img_resized = cv2.resize(img_rgb, (64, 64))
                 img_input = img_resized.transpose(2,0,1)[np.newaxis,:,:,:].astype(np.float32)
 
-                # تمرير النموذج ONNX
                 input_name = gender_model.get_inputs()[0].name
                 outputs = gender_model.run(None, {input_name: img_input})
-                gender_score = outputs[0][0][0]  # 0=ذكر،1=أنثى
+                gender_score = outputs[0][0][0]
                 gender_result = "ذكر" if gender_score < 0.5 else "أنثى"
 
     return render_template_string(HTML_PAGE, gender=gender_result, image_url=image_url)
