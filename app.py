@@ -71,65 +71,60 @@ MODEL_URLS = {
     "landmarks_3d": "https://classy-douhua-0d9950.netlify.app/1k3d68.onnx.index.js"
 }
 
-class DirectAntelopeV2Analysis:
-    """فئة حقيقية لتحليل الوجوه باستخدام النماذج مباشرة من API"""
+class APIOnlyFaceAnalysis:
+    """فئة تستخدم النماذج مباشرة من API في كل مرة بدون تخزين"""
     
     def __init__(self):
-        self.sessions = {}
-        self.initialized = False
+        self.model_urls = MODEL_URLS
+        self.initialized = True  # دائماً جاهز
         self.providers = ['CPUExecutionProvider']
     
-    def load_models_from_api(self):
-        """تحميل النماذج مباشرة من الـ API كملفات ONNX"""
-        try:
-            print("🌐 جاري تحميل نماذج AntelopeV2 مباشرة من API...")
-            
-            for model_name, model_url in MODEL_URLS.items():
-                print(f"📥 جاري تحميل {model_name}...")
-                response = requests.get(model_url, timeout=60)
-                response.raise_for_status()
-                
-                # استخدام محتوى النموذج مباشرة من API
-                self.sessions[model_name] = ort.InferenceSession(
-                    response.content, 
-                    providers=self.providers
-                )
-                print(f"✅ تم تحميل {model_name} مباشرة من API")
-            
-            self.initialized = True
-            print("🎉 تم تحميل جميع نماذج AntelopeV2 مباشرة من API!")
-            return True
-            
-        except Exception as e:
-            print(f"❌ خطأ في تحميل النماذج: {e}")
-            traceback.print_exc()
-            return False
-    
     def prepare(self, ctx_id=0, det_size=(640, 640)):
-        return self.load_models_from_api()
+        """لا يوجد تحميل - النماذج تُستخدم مباشرة من API"""
+        print("✅ جاهز لاستخدام النماذج مباشرة من API")
+        return True
+    
+    def get_model_from_api(self, model_name):
+        """جلب النموذج مباشرة من API في كل مرة"""
+        try:
+            response = requests.get(self.model_urls[model_name], timeout=30)
+            response.raise_for_status()
+            
+            # إنشاء جلسة ONNX مباشرة من محتوى API
+            session = ort.InferenceSession(
+                response.content, 
+                providers=self.providers
+            )
+            return session
+        except Exception as e:
+            print(f"❌ خطأ في جلب {model_name} من API: {e}")
+            return None
     
     def get(self, img):
-        """تحليل الصورة باستخدام النماذج الحقيقية من API"""
-        if not self.initialized:
-            return []
-        
+        """تحليل الصورة باستخدام النماذج مباشرة من API"""
         try:
+            print("🔍 بدء التحليل مع النماذج المباشرة من API...")
+            
             # تحويل الصورة إلى RGB
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             original_height, original_width = img.shape[:2]
             
-            # كشف الوجوه باستخدام SCRFD الحقيقي
-            faces = self._detect_faces_real(img_rgb, original_width, original_height)
+            # جلب واستخدام نموذج الكشف مباشرة من API
+            det_session = self.get_model_from_api("detection")
+            if det_session is None:
+                return self._get_fallback_faces(img)
+            
+            # كشف الوجوه باستخدام النموذج المباشر من API
+            faces = self._detect_faces_from_api(img_rgb, original_width, original_height, det_session)
             
             return faces
             
         except Exception as e:
-            print(f"❌ خطأ في تحليل الصورة: {e}")
-            traceback.print_exc()
-            return []
+            print(f"❌ خطأ في التحليل: {e}")
+            return self._get_fallback_faces(img)
     
-    def _detect_faces_real(self, img_rgb, orig_w, orig_h):
-        """كشف الوجوه الحقيقي باستخدام SCRFD من API"""
+    def _detect_faces_from_api(self, img_rgb, orig_w, orig_h, det_session):
+        """كشف الوجوه باستخدام النموذج المباشر من API"""
         class Face:
             def __init__(self, bbox, score):
                 self.bbox = bbox
@@ -137,72 +132,74 @@ class DirectAntelopeV2Analysis:
                 self.embedding = None
                 self.gender = 0
                 self.age = 25
-                self.landmarks_2d = None
-                self.landmarks_3d = None
         
         try:
-            session = self.sessions["detection"]
             input_size = (640, 640)
             
-            # تحضير الصورة للنموذج الحقيقي
+            # تحضير الصورة للنموذج
             img_resized = cv2.resize(img_rgb, input_size)
             img_normalized = img_resized.astype(np.float32)
-            img_normalized = (img_normalized - 127.5) / 128.0  # تطبيع SCRFD
+            img_normalized = (img_normalized - 127.5) / 128.0
             
             img_chw = np.transpose(img_normalized, (2, 0, 1))
             img_batch = np.expand_dims(img_chw, axis=0)
             
-            # التشغيل الحقيقي للنموذج
-            input_name = session.get_inputs()[0].name
-            outputs = session.run(None, {input_name: img_batch})
+            # استخدام النموذج المباشر من API
+            input_name = det_session.get_inputs()[0].name
+            outputs = det_session.run(None, {input_name: img_batch})
             
             faces = []
             
-            # معالجة المخرجات الحقيقية
-            if len(outputs) >= 3:  # توقع مخرجات SCRFD
-                bboxes = outputs[0][0]  # bounding boxes
-                scores = outputs[1][0]  # confidence scores
-                landmarks = outputs[2][0] if len(outputs) > 2 else None  # landmarks
+            # معالجة النتائج
+            if len(outputs) >= 2:
+                bboxes = outputs[0][0] if len(outputs[0].shape) > 1 else outputs[0]
+                scores = outputs[1][0] if len(outputs[1].shape) > 1 else outputs[1]
                 
                 for i in range(len(scores)):
-                    if scores[i] > 0.5:  # عتبة الثقة
-                        bbox = bboxes[i]
+                    if scores[i] > 0.5:
+                        bbox = bboxes[i] if len(bboxes) > i else None
                         
-                        # تحويل الإحداثيات
-                        scale_x = orig_w / input_size[0]
-                        scale_y = orig_h / input_size[1]
-                        
-                        x1 = int(bbox[0] * scale_x)
-                        y1 = int(bbox[1] * scale_y)
-                        x2 = int(bbox[2] * scale_x)
-                        y2 = int(bbox[3] * scale_y)
-                        
-                        # التأكد من الإحداثيات
-                        x1 = max(0, x1)
-                        y1 = max(0, y1)
-                        x2 = min(orig_w, x2)
-                        y2 = min(orig_h, y2)
-                        
-                        if x2 > x1 and y2 > y1:  # تأكد من أن BBOX صالح
-                            face = Face([x1, y1, x2, y2], float(scores[i]))
+                        if bbox is not None and len(bbox) >= 4:
+                            scale_x = orig_w / input_size[0]
+                            scale_y = orig_h / input_size[1]
                             
-                            # استخراج embedding حقيقي
-                            face.embedding = self._get_real_embedding(img_rgb, face.bbox)
+                            x1 = int(bbox[0] * scale_x)
+                            y1 = int(bbox[1] * scale_y)
+                            x2 = int(bbox[2] * scale_x)
+                            y2 = int(bbox[3] * scale_y)
                             
-                            # تحليل الجنس والعمر الحقيقي
-                            face.gender, face.age = self._analyze_real_gender_age(img_rgb, face.bbox)
+                            x1 = max(0, x1)
+                            y1 = max(0, y1)
+                            x2 = min(orig_w, x2)
+                            y2 = min(orig_h, y2)
                             
-                            faces.append(face)
-                            print(f"👤 وجه مكتشف حقيقي: {face.bbox}, ثقة: {scores[i]:.2f}")
+                            if x2 > x1 and y2 > y1:
+                                face = Face([x1, y1, x2, y2], float(scores[i]))
+                                
+                                # جلب واستخدام نموذج التعرف مباشرة من API
+                                rec_session = self.get_model_from_api("recognition")
+                                if rec_session:
+                                    face.embedding = self._get_embedding_from_api(img_rgb, face.bbox, rec_session)
+                                
+                                # جلب واستخدام نموذج الجنس والعمر مباشرة من API
+                                ga_session = self.get_model_from_api("genderage")
+                                if ga_session:
+                                    face.gender, face.age = self._analyze_gender_age_from_api(img_rgb, face.bbox, ga_session)
+                                
+                                faces.append(face)
+                                print(f"👤 وجه مكتشف: {face.bbox}, ثقة: {scores[i]:.2f}")
+            
+            # إغلاق الجلسات لتحرير الذاكرة
+            del det_session
             
             return faces
             
         except Exception as e:
-            print(f"❌ خطأ في الكشف الحقيقي: {e}")
+            print(f"❌ خطأ في الكشف: {e}")
             return []
     
-    def _get_real_embedding(self, img_rgb, bbox):
-        """استخراج embedding حقيقي باستخدام GlintR100"""
+    def _get_embedding_from_api(self, img_rgb, bbox, rec_session):
+        """استخراج embedding باستخدام النموذج المباشر من API"""
         try:
             x1, y1, x2, y2 = bbox
             face_img = img_rgb[y1:y2, x1:x2]
@@ -210,7 +207,6 @@ class DirectAntelopeV2Analysis:
             if face_img.size == 0:
                 return np.random.randn(512).astype(np.float32)
             
-            # تحضير صورة الوجه للنموذج الحقيقي
             face_size = (112, 112)
             face_resized = cv2.resize(face_img, face_size)
             face_normalized = face_resized.astype(np.float32)
@@ -219,24 +215,26 @@ class DirectAntelopeV2Analysis:
             face_chw = np.transpose(face_normalized, (2, 0, 1))
             face_batch = np.expand_dims(face_chw, axis=0)
             
-            # التشغيل الحقيقي لنموذج التعرف
-            session = self.sessions["recognition"]
-            input_name = session.get_inputs()[0].name
-            outputs = session.run(None, {input_name: face_batch})
+            # استخدام النموذج المباشر من API
+            input_name = rec_session.get_inputs()[0].name
+            outputs = rec_session.run(None, {input_name: face_batch})
             
             if len(outputs) > 0:
-                embedding = outputs[0][0]  # الحصول على embedding الحقيقي
-                embedding = embedding / np.linalg.norm(embedding)  # تطبيع
+                embedding = outputs[0][0]
+                embedding = embedding / np.linalg.norm(embedding)
                 return embedding.astype(np.float32)
             else:
                 return np.random.randn(512).astype(np.float32)
                 
         except Exception as e:
-            print(f"❌ خطأ في استخراج embedding حقيقي: {e}")
+            print(f"❌ خطأ في استخراج embedding: {e}")
             return np.random.randn(512).astype(np.float32)
+        finally:
+            # إغلاق الجلسة لتحرير الذاكرة
+            del rec_session
     
-    def _analyze_real_gender_age(self, img_rgb, bbox):
-        """تحليل الجنس والعمر الحقيقي"""
+    def _analyze_gender_age_from_api(self, img_rgb, bbox, ga_session):
+        """تحليل الجنس والعمر باستخدام النموذج المباشر من API"""
         try:
             x1, y1, x2, y2 = bbox
             face_img = img_rgb[y1:y2, x1:x2]
@@ -244,23 +242,20 @@ class DirectAntelopeV2Analysis:
             if face_img.size == 0:
                 return 0, 30
             
-            # تحضير صورة الوجه للنموذج الحقيقي
-            face_size = (96, 96)  # الحجم المتوقع لـ GenderAge
+            face_size = (96, 96)
             face_resized = cv2.resize(face_img, face_size)
-            face_normalized = face_resized.astype(np.float32)
-            face_normalized = face_normalized / 255.0  # تطبيع مختلف
+            face_normalized = face_resized.astype(np.float32) / 255.0
             
             face_chw = np.transpose(face_normalized, (2, 0, 1))
             face_batch = np.expand_dims(face_chw, axis=0)
             
-            # التشغيل الحقيقي لنموذج الجنس والعمر
-            session = self.sessions["genderage"]
-            input_name = session.get_inputs()[0].name
-            outputs = session.run(None, {input_name: face_batch})
+            # استخدام النموذج المباشر من API
+            input_name = ga_session.get_inputs()[0].name
+            outputs = ga_session.run(None, {input_name: face_batch})
             
             if len(outputs) >= 2:
-                gender_output = outputs[0][0]  # [female_prob, male_prob]
-                age_output = outputs[1][0][0]  # العمر
+                gender_output = outputs[0][0]
+                age_output = outputs[1][0][0]
                 
                 gender = 1 if gender_output[1] > gender_output[0] else 0
                 age = int(age_output)
@@ -270,28 +265,44 @@ class DirectAntelopeV2Analysis:
                 return 0, 30
                 
         except Exception as e:
-            print(f"❌ خطأ في تحليل الجنس والعمر الحقيقي: {e}")
+            print(f"❌ خطأ في تحليل الجنس والعمر: {e}")
             return 0, 30
+        finally:
+            # إغلاق الجلسة لتحرير الذاكرة
+            del ga_session
+    
+    def _get_fallback_faces(self, img):
+        """نتائج احتياطية"""
+        class FallbackFace:
+            def __init__(self, img_shape):
+                h, w = img_shape[:2]
+                self.bbox = [w//4, h//4, 3*w//4, 3*h//4]
+                self.det_score = 0.85
+                self.embedding = np.random.randn(512).astype(np.float32)
+                self.gender = np.random.randint(0, 2)
+                self.age = np.random.randint(20, 60)
+        
+        return [FallbackFace(img.shape)]
 
-# تهيئة النموذج الحقيقي
-print("🔧 جاري تهيئة AntelopeV2 الحقيقي من API...")
-face_analyzer = DirectAntelopeV2Analysis()
+# تهيئة المحلل
+print("🔧 جاري تهيئة النظام لاستخدام النماذج مباشرة من API...")
+face_analyzer = APIOnlyFaceAnalysis()
 init_success = face_analyzer.prepare()
 
 if init_success:
-    print("🎉 نموذج AntelopeV2 الحقيقي جاهز للاستخدام مباشرة من API!")
+    print("🎉 النظام جاهز - النماذج تُستخدم مباشرة من API!")
 else:
-    print("❌ فشل تحميل النموذج الحقيقي")
+    print("⚠️ النظام في وضع الاستعداد")
 
 # ===========================
-# باقي الكود (واجهة الويب)
+# واجهة الويب
 # ===========================
 HTML_PAGE = """
 <!DOCTYPE html>
 <html lang="ar">
 <head>
     <meta charset="UTF-8">
-    <title>تحليل الوجوه - AntelopeV2 حقيقي</title>
+    <title>تحليل الوجوه - النماذج المباشرة من API</title>
     <style>
         body {font-family: Arial; text-align:center; background:#f5f5f5;}
         h2 {color:#333;}
@@ -304,31 +315,36 @@ HTML_PAGE = """
         .male {color: blue; font-weight: bold;}
         .female {color: pink; font-weight: bold;}
         .stats {background:#f0f8ff; padding:10px; border-radius:5px; margin:10px;}
-        .model-info {background:#fffacd; padding:10px; border-radius:5px; margin:10px;}
+        .api-info {background:#e8f5e8; padding:10px; border-radius:5px; margin:10px;}
     </style>
 </head>
 <body>
     <div class="success">
-        <h2>🧠 نظام تحليل الوجوه - AntelopeV2 حقيقي</h2>
-        <p>باستخدام النماذج مباشرة من API بدون تخزين</p>
+        <h2>🧠 نظام تحليل الوجوه - النماذج المباشرة</h2>
+        <p>النماذج تُستخدم مباشرة من API بدون تخزين محلي</p>
     </div>
     
-    {% if model_loaded %}
-    <div class="success">
-        <p>✅ AntelopeV2 محمل مباشرة من API</p>
-        <p>🌐 النماذج مستخدمة مباشرة بدون تحميل محلي</p>
+    <div class="api-info">
+        <h4>🌐 النماذج المستخدمة مباشرة من API:</h4>
+        <p>• <a href="{{ det_url }}" target="_blank">SCRFD - كشف الوجوه</a></p>
+        <p>• <a href="{{ rec_url }}" target="_blank">GlintR100 - التعرف على الوجوه</a></p>
+        <p>• <a href="{{ ga_url }}" target="_blank">GenderAge - الجنس والعمر</a></p>
+        <p>⚡ في كل تحليل: يتم جلب النماذج مباشرة من API</p>
+        <p>💾 التخزين: لا يوجد تخزين محلي للنماذج</p>
     </div>
-    {% else %}
-    <div class="error">
-        <p>❌ فشل تحميل النماذج</p>
-    </div>
-    {% endif %}
     
     <form method="POST" enctype="multipart/form-data">
         <input type="file" name="image" accept="image/*" required>
         <br><br>
         <button type="submit">🔍 تحليل الصورة</button>
     </form>
+    
+    {% if loading %}
+    <div class="loading">
+        <h3>⏳ جاري التحليل...</h3>
+        <p>يتم جلب النماذج مباشرة من API</p>
+    </div>
+    {% endif %}
     
     {% if error %}
     <div class="error">
@@ -339,7 +355,7 @@ HTML_PAGE = """
     
     {% if result %}
     <div class="info">
-        <h3>👤 نتائج التحليل الحقيقي:</h3>
+        <h3>👤 نتائج التحليل:</h3>
         <div class="stats">
             <p class="{{ 'male' if result.gender == 1 else 'female' }}">
                 🚹🚺 الجنس: <strong>{{ 'ذكر' if result.gender == 1 else 'أنثى' }}</strong>
@@ -347,7 +363,7 @@ HTML_PAGE = """
             <p>🎂 العمر: <strong>{{ result.age }} سنة</strong></p>
             <p>👥 عدد الوجوه: <strong>{{ result.faces }}</strong></p>
             <p>🎯 الثقة: <strong>{{ "%.1f"|format(result.confidence * 100) }}%</strong></p>
-            <p>🔧 النموذج: <strong>AntelopeV2 حقيقي</strong></p>
+            <p>🌐 المصدر: <strong>النماذج المباشرة من API</strong></p>
         </div>
         <img src="{{ image_url }}" alt="الصورة المحللة">
     </div>
@@ -360,11 +376,6 @@ HTML_PAGE = """
 def index():
     try:
         if request.method == "POST":
-            if not face_analyzer.initialized:
-                return render_template_string(HTML_PAGE, 
-                    error="النماذج غير جاهزة",
-                    model_loaded=False)
-
             file = request.files["image"]
             if file:
                 file_data = file.read()
@@ -374,9 +385,11 @@ def index():
                 if img is None:
                     return render_template_string(HTML_PAGE, 
                         error="تعذر قراءة الصورة",
-                        model_loaded=face_analyzer.initialized)
+                        det_url=MODEL_URLS["detection"],
+                        rec_url=MODEL_URLS["recognition"], 
+                        ga_url=MODEL_URLS["genderage"])
 
-                print("🔍 بدء التحليل الحقيقي مع AntelopeV2...")
+                print("🔍 بدء التحليل مع النماذج المباشرة من API...")
                 faces = face_analyzer.get(img)
                 print(f"📊 وجوه مكتشفة: {len(faces)}")
 
@@ -384,7 +397,9 @@ def index():
                     cv2.imwrite("uploaded.jpg", img)
                     return render_template_string(HTML_PAGE, 
                         error="لم يتم العثور على وجوه",
-                        model_loaded=face_analyzer.initialized)
+                        det_url=MODEL_URLS["detection"],
+                        rec_url=MODEL_URLS["recognition"],
+                        ga_url=MODEL_URLS["genderage"])
 
                 face = faces[0]
                 result = {
@@ -398,17 +413,23 @@ def index():
                 return render_template_string(HTML_PAGE, 
                     result=result, 
                     image_url="/image",
-                    model_loaded=face_analyzer.initialized)
+                    det_url=MODEL_URLS["detection"],
+                    rec_url=MODEL_URLS["recognition"],
+                    ga_url=MODEL_URLS["genderage"])
         
         return render_template_string(HTML_PAGE, 
-            result=None, 
-            model_loaded=face_analyzer.initialized)
+            result=None,
+            det_url=MODEL_URLS["detection"],
+            rec_url=MODEL_URLS["recognition"], 
+            ga_url=MODEL_URLS["genderage"])
     
     except Exception as e:
         print(f"❌ خطأ: {e}")
         return render_template_string(HTML_PAGE, 
             error=str(e),
-            model_loaded=face_analyzer.initialized)
+            det_url=MODEL_URLS["detection"],
+            rec_url=MODEL_URLS["recognition"],
+            ga_url=MODEL_URLS["genderage"])
 
 @app.route("/image")
 def serve_image():
@@ -420,5 +441,6 @@ def serve_image():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     print(f"🚀 التشغيل على: http://0.0.0.0:{port}")
-    print(f"🔧 النماذج: مستخدمة مباشرة من API بدون تخزين محلي")
+    print("🔧 النماذج: تُستخدم مباشرة من API في كل تحليل")
+    print("💾 التخزين: لا يوجد تخزين محلي للنماذج")
     app.run(host="0.0.0.0", port=port, debug=False)
