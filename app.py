@@ -5,12 +5,11 @@ from flask import Flask, request, render_template_string
 import cv2
 
 # ===========================
-# تثبيت المكتبات تلقائياً
+# تثبيت المكتبات تلقائيًا
 # ===========================
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-# تثبيت insightface، numpy، flask إذا لم تكن موجودة
 try:
     import insightface
 except:
@@ -34,13 +33,15 @@ except:
 # ===========================
 app = Flask(__name__)
 
-# مجلد لتحميل الملفات
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# تحميل النموذج مع السماح بتنزيله تلقائيًا إذا لم يكن موجود
-model = insightface.app.FaceAnalysis(name='antelopev2')  # download=True افتراضي
-model.prepare(ctx_id=-1, nms=0.4)  # CPU فقط
+# ===========================
+# تحميل نموذج خفيف لكشف الجنس فقط
+# ===========================
+# استخدام نموذج RetinaFace خفيف جدًا مع FaceAnalysis
+model = insightface.app.FaceAnalysis(name="retinaface_mnet025_v2")
+model.prepare(ctx_id=-1)  # CPU فقط
 
 # صفحة HTML بسيطة
 HTML_PAGE = """
@@ -79,7 +80,7 @@ def index():
             if len(faces) == 0:
                 gender_result = "🚫 لم يتم اكتشاف أي وجه"
             else:
-                # نفترض أول وجه فقط
+                # أول وجه فقط
                 face = faces[0]
                 gender_result = "ذكر" if face.gender == 1 else "أنثى"
 
@@ -89,4 +90,6 @@ def index():
 # تشغيل الخادم
 # ===========================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Render قد يتطلب استخدام PORT من البيئة
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
