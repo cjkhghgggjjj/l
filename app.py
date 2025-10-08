@@ -1,11 +1,12 @@
 import os
 import subprocess
 import sys
-import io
 import requests
+import io
+import numpy as np
 from flask import Flask, request, render_template_string
 import cv2
-import numpy as np
+import onnxruntime as ort
 
 # ===========================
 # تثبيت المكتبات تلقائيًا
@@ -14,16 +15,22 @@ def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
 try:
-    import insightface
-except:
-    install("insightface")
-    import insightface
-
-try:
     import onnxruntime
 except:
     install("onnxruntime")
     import onnxruntime
+
+try:
+    import numpy as np
+except:
+    install("numpy")
+    import numpy as np
+
+try:
+    from flask import Flask, request, render_template_string
+except:
+    install("flask")
+    from flask import Flask, request, render_template_string
 
 # ===========================
 # إعداد Flask
@@ -33,36 +40,36 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # ===========================
-# روابط ملفات النماذج مباشرة
+# روابط ملفات النماذج ONNX
 # ===========================
 model_urls = {
-    "scrfd": "https://classy-douhua-0d9950.netlify.app/scrfd_10g_bnkps.onnx.index.js",
-    "glintr100": "https://classy-douhua-0d9950.netlify.app/glintr100.onnx.index.js",
-    "genderage": "https://classy-douhua-0d9950.netlify.app/genderage.onnx.index.js",
-    "2d106det": "https://classy-douhua-0d9950.netlify.app/2d106det.onnx.index.js",
-    "1k3d68": "https://classy-douhua-0d9950.netlify.app/1k3d68.onnx.index.js"
+    "genderage": "https://classy-douhua-0d9950.netlify.app/genderage.onnx.index.js"
+    # يمكنك إضافة نماذج أخرى لاحقًا
 }
 
 # ===========================
-# تحميل النموذج في الذاكرة
+# تحميل نموذج ONNX من الرابط في الذاكرة
 # ===========================
-def load_model_from_url(url):
+def load_onnx_model(url):
     r = requests.get(url)
     if r.status_code != 200:
         raise RuntimeError(f"فشل تحميل النموذج من {url}")
-    # تحويل المحتوى مباشرة إلى bytes
-    content_bytes = r.content
-    # بعض روابطك index.js → نحتاج استخراج الـ bytes الفعلية
-    # نفترض أن الملف يحتوي على JavaScript: const MODEL="BASE64";
-    # إذا كان الملف فعليًا ONNX فقط، نستخدم r.content مباشرة
-    return content_bytes
+    # نفترض أن الملف عبارة عن ONNX binary داخل index.js → إذا كان Base64
+    content = r.content
+    # إذا كان الملف index.js يحوي Base64:
+    # استخراج النص بعد const MODEL = "..." 
+    text = content.decode(errors="ignore")
+    start = text.find('"') + 1
+    end = text.rfind('"')
+    base64_data = text[start:end]
+    model_bytes = io.BytesIO(base64.b64decode(base64_data))
+    sess = ort.InferenceSession(model_bytes.read(), providers=['CPUExecutionProvider'])
+    return sess
 
 # ===========================
-# نموذج FaceAnalysis
+# تهيئة نموذج الجنس فقط
 # ===========================
-# استخدام النموذج antelopev2 افتراضي
-model = insightface.app.FaceAnalysis(name="antelopev2")
-model.prepare(ctx_id=-1)
+gender_model = load_onnx_model(model_urls["genderage"])
 
 # ===========================
 # HTML صفحة الرفع
@@ -96,13 +103,15 @@ def index():
             image_url = filepath
 
             img = cv2.imread(filepath)
-            faces = model.get(img)
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img_resized = cv2.resize(img_rgb, (64, 64))  # حسب نموذج الجنس
+            img_input = img_resized.transpose(2,0,1)[np.newaxis,:,:,:].astype(np.float32)
 
-            if len(faces) == 0:
-                gender_result = "🚫 لم يتم اكتشاف أي وجه"
-            else:
-                face = faces[0]
-                gender_result = "ذكر" if face.gender == 1 else "أنثى"
+            # تمرير النموذج ONNX
+            input_name = gender_model.get_inputs()[0].name
+            outputs = gender_model.run(None, {input_name: img_input})
+            gender_score = outputs[0][0][0]  # نفترض 0=ذكر،1=أنثى
+            gender_result = "ذكر" if gender_score < 0.5 else "أنثى"
 
     return render_template_string(HTML_PAGE, gender=gender_result, image_url=image_url)
 
