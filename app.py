@@ -10,6 +10,7 @@ import cv2
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
+# تثبيت insightface، numpy، flask إذا لم تكن موجودة
 try:
     import insightface
 except:
@@ -33,9 +34,13 @@ except:
 # ===========================
 app = Flask(__name__)
 
-# تحميل النموذج بشكل خفيف (CPU فقط)
-model = insightface.app.FaceAnalysis(name='antelopev2', download=False)
-model.prepare(ctx_id=-1, nms=0.4)
+# مجلد لتحميل الملفات
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# تحميل النموذج مع السماح بتنزيله تلقائيًا إذا لم يكن موجود
+model = insightface.app.FaceAnalysis(name='antelopev2')  # download=True افتراضي
+model.prepare(ctx_id=-1, nms=0.4)  # CPU فقط
 
 # صفحة HTML بسيطة
 HTML_PAGE = """
@@ -62,8 +67,7 @@ def index():
     if request.method == "POST":
         file = request.files.get("file")
         if file:
-            filepath = os.path.join("uploads", file.filename)
-            os.makedirs("uploads", exist_ok=True)
+            filepath = os.path.join(UPLOAD_FOLDER, file.filename)
             file.save(filepath)
             image_url = filepath
 
