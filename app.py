@@ -3,6 +3,7 @@ import subprocess
 import sys
 import requests
 import io
+import base64
 import numpy as np
 from flask import Flask, request, render_template_string
 import cv2
@@ -14,23 +15,11 @@ import onnxruntime as ort
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-try:
-    import onnxruntime
-except:
-    install("onnxruntime")
-    import onnxruntime
-
-try:
-    import numpy as np
-except:
-    install("numpy")
-    import numpy as np
-
-try:
-    from flask import Flask, request, render_template_string
-except:
-    install("flask")
-    from flask import Flask, request, render_template_string
+for pkg in ["onnxruntime", "numpy", "flask", "opencv-python"]:
+    try:
+        __import__(pkg)
+    except ImportError:
+        install(pkg)
 
 # ===========================
 # إعداد Flask
@@ -44,7 +33,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # ===========================
 model_urls = {
     "genderage": "https://classy-douhua-0d9950.netlify.app/genderage.onnx.index.js"
-    # يمكنك إضافة نماذج أخرى لاحقًا
 }
 
 # ===========================
@@ -54,15 +42,15 @@ def load_onnx_model(url):
     r = requests.get(url)
     if r.status_code != 200:
         raise RuntimeError(f"فشل تحميل النموذج من {url}")
-    # نفترض أن الملف عبارة عن ONNX binary داخل index.js → إذا كان Base64
+    
     content = r.content
-    # إذا كان الملف index.js يحوي Base64:
-    # استخراج النص بعد const MODEL = "..." 
+    # استخراج Base64 من index.js
     text = content.decode(errors="ignore")
     start = text.find('"') + 1
     end = text.rfind('"')
     base64_data = text[start:end]
     model_bytes = io.BytesIO(base64.b64decode(base64_data))
+    
     sess = ort.InferenceSession(model_bytes.read(), providers=['CPUExecutionProvider'])
     return sess
 
@@ -103,15 +91,18 @@ def index():
             image_url = filepath
 
             img = cv2.imread(filepath)
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img_resized = cv2.resize(img_rgb, (64, 64))  # حسب نموذج الجنس
-            img_input = img_resized.transpose(2,0,1)[np.newaxis,:,:,:].astype(np.float32)
+            if img is None:
+                gender_result = "🚫 خطأ في قراءة الصورة"
+            else:
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img_resized = cv2.resize(img_rgb, (64, 64))  # حسب نموذج الجنس
+                img_input = img_resized.transpose(2,0,1)[np.newaxis,:,:,:].astype(np.float32)
 
-            # تمرير النموذج ONNX
-            input_name = gender_model.get_inputs()[0].name
-            outputs = gender_model.run(None, {input_name: img_input})
-            gender_score = outputs[0][0][0]  # نفترض 0=ذكر،1=أنثى
-            gender_result = "ذكر" if gender_score < 0.5 else "أنثى"
+                # تمرير النموذج ONNX
+                input_name = gender_model.get_inputs()[0].name
+                outputs = gender_model.run(None, {input_name: img_input})
+                gender_score = outputs[0][0][0]  # 0=ذكر،1=أنثى
+                gender_result = "ذكر" if gender_score < 0.5 else "أنثى"
 
     return render_template_string(HTML_PAGE, gender=gender_result, image_url=image_url)
 
